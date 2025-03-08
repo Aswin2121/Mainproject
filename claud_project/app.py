@@ -18,6 +18,7 @@ import json
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from geopy.geocoders import Nominatim
 
 # Set page configuration
 st.set_page_config(page_title="Flood Prediction System", layout="wide")
@@ -38,7 +39,8 @@ def init_users():
                 "password": hashlib.sha256("admin123".encode()).hexdigest(),
                 "email": "admin@example.com",
                 "alert_threshold": 0.7,
-                "alert_channels": ["email", "dashboard"]
+                "alert_channels": ["email", "dashboard"],
+                "locality": "Default Locality"
             }
         }
         with open('users.json', 'w') as f:
@@ -60,7 +62,7 @@ def verify_user(username, password):
             return True
     return False
 
-def register_user(username, password, email):
+def register_user(username, password, email, locality):
     users = get_users()
     if username in users:
         return False
@@ -69,7 +71,8 @@ def register_user(username, password, email):
         "password": hashlib.sha256(password.encode()).hexdigest(),
         "email": email,
         "alert_threshold": 0.7,
-        "alert_channels": ["dashboard"]
+        "alert_channels": ["dashboard"],
+        "locality": locality
     }
     
     save_users(users)
@@ -296,7 +299,22 @@ def plot_probability_distribution(models, X_test):
 def display_location_on_map(latitude, longitude):
     st.subheader("Location on Map")
     df_map = pd.DataFrame({'lat': [latitude], 'lon': [longitude]})
-    st.map(df_map)
+    st.map(df_map, zoom=12)  # Adjust zoom level for better precision
+
+# Function to get place name from latitude and longitude
+def get_place_name(latitude, longitude):
+    geolocator = Nominatim(user_agent="flood_prediction_system")
+    location = geolocator.reverse((latitude, longitude), exactly_one=True)
+    if location:
+        return location.address
+    return "Location not found"
+
+# Function to send alerts to users in the same locality
+def send_locality_alerts(locality, alert_message, risk_level, details=None):
+    users = get_users()
+    for username, user_data in users.items():
+        if user_data.get("locality") == locality:
+            save_alert(username, alert_message, risk_level, details)
 
 # Login page
 def login_page():
@@ -321,16 +339,17 @@ def login_page():
         new_password = st.text_input("Choose Password", type="password", key="reg_password")
         confirm_password = st.text_input("Confirm Password", type="password", key="confirm_password")
         email = st.text_input("Email Address", key="reg_email")
+        locality = st.text_input("Locality", key="reg_locality")
         
         if st.button("Register"):
             if new_password != confirm_password:
                 st.error("Passwords do not match")
             elif len(new_password) < 6:
                 st.error("Password must be at least 6 characters long")
-            elif not new_username or not email:
-                st.error("Username and email are required")
+            elif not new_username or not email or not locality:
+                st.error("Username, email, and locality are required")
             else:
-                if register_user(new_username, new_password, email):
+                if register_user(new_username, new_password, email, locality):
                     st.success("Registration successful! You can now login.")
                 else:
                     st.error("Username already exists")
@@ -390,6 +409,7 @@ def user_settings():
     with col1:
         st.subheader("Profile Information")
         email = st.text_input("Email Address", value=user_data["email"])
+        locality = st.text_input("Locality", value=user_data.get("locality", ""))
         
     with col2:
         st.subheader("Alert Preferences")
@@ -403,6 +423,7 @@ def user_settings():
     
     if st.button("Save Settings"):
         users[st.session_state.username]["email"] = email
+        users[st.session_state.username]["locality"] = locality
         users[st.session_state.username]["alert_threshold"] = alert_threshold
         users[st.session_state.username]["alert_channels"] = alert_channels
         save_users(users)
@@ -600,6 +621,11 @@ def main():
                 # Display location on a map
                 display_location_on_map(selected_lat, selected_lon)
                 
+                # Get place name from latitude and longitude
+                place_name = get_place_name(selected_lat, selected_lon)
+                st.subheader("Location Details")
+                st.text_area("Place Name", value=place_name, height=68, disabled=True)
+                
                 # Extract features for prediction (excluding 'Latitude', 'Longitude', and 'Flood Occurred')
                 input_data = selected_row.drop(columns=['Latitude', 'Longitude', 'Flood Occurred'])
                 
@@ -635,8 +661,13 @@ def main():
                             **selected_row.iloc[0].to_dict()  # Include all features in the alert details
                         }
                         
-                        # Save the alert
+                        # Save the alert for the current user
                         save_alert(st.session_state.username, alert_message, risk_level, details)
+                        
+                        # Send alerts to all users in the same locality
+                        locality = users[st.session_state.username].get("locality")
+                        if locality:
+                            send_locality_alerts(locality, alert_message, risk_level, details)
                         
                         # Show alert notification
                         st.warning(f"⚠️ Alert created: {alert_message}")
