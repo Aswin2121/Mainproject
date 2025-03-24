@@ -19,6 +19,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from geopy.geocoders import Nominatim
+import pydeck as pdk
 
 # Set page configuration
 st.set_page_config(page_title="Flood Prediction System", layout="wide")
@@ -295,11 +296,51 @@ def plot_probability_distribution(models, X_test):
     plt.tight_layout()
     return plt
 
-# Function to display location on a map
 def display_location_on_map(latitude, longitude):
-    st.subheader("Location on Map")
-    df_map = pd.DataFrame({'lat': [latitude], 'lon': [longitude]})
-    st.map(df_map, zoom=12)  # Adjust zoom level for better precision
+    st.subheader("Detailed Location Map")
+    
+    # Create a pydeck map with a more visible red marker
+    layers = [
+        pdk.Layer(
+            "ScatterplotLayer",
+            data=pd.DataFrame({'lat': [latitude], 'lon': [longitude]}),
+            get_position='[lon, lat]',
+            get_color='[255, 0, 0, 200]',  # Bright red color
+            get_radius=200,  # Larger radius
+            pickable=True
+        ),
+        pdk.Layer(
+            "TextLayer",
+            data=pd.DataFrame({'lat': [latitude], 'lon': [longitude], 'text': ['Flood Risk Area']}),
+            get_position='[lon, lat]',
+            get_text='text',
+            get_color='[255, 255, 255, 255]',  # White text
+            get_size=16,
+            get_alignment_baseline="'bottom'"
+        )
+    ]
+    
+    view_state = pdk.ViewState(
+        latitude=latitude,
+        longitude=longitude,
+        zoom=12,
+        pitch=50
+    )
+    
+    r = pdk.Deck(
+        layers=layers,
+        initial_view_state=view_state,
+        map_style='mapbox://styles/mapbox/satellite-streets-v11',
+        tooltip={
+            "html": "<b>Flood Risk Location</b><br/>Latitude: {lat}<br/>Longitude: {lon}",
+            "style": {
+                "backgroundColor": "red",
+                "color": "white"
+            }
+        }
+    )
+    
+    st.pydeck_chart(r)
 
 # Function to get place name from latitude and longitude
 def get_place_name(latitude, longitude):
@@ -474,9 +515,9 @@ def main():
             st.subheader("Sample Data")
             st.dataframe(df.head())
             
-            # Data statistics
+            # Data statistics (excluding lat/long)
             st.subheader("Data Statistics")
-            st.dataframe(df.describe())
+            st.dataframe(df.drop(columns=['Latitude', 'Longitude']).describe())
             
             # Data distribution
             st.subheader("Feature Distributions")
@@ -484,23 +525,23 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                feature = st.selectbox("Select Feature for Histogram", df.columns)
+                feature = st.selectbox("Select Feature for Histogram", df.drop(columns=['Latitude', 'Longitude']).columns)
                 fig, ax = plt.subplots()
                 sns.histplot(data=df, x=feature, hue='Flood Occurred', kde=True, ax=ax)
                 st.pyplot(fig)
             
             with col2:
-                x_feature = st.selectbox("Select X-axis Feature", df.drop('Flood Occurred', axis=1).columns)
-                y_feature = st.selectbox("Select Y-axis Feature", [col for col in df.drop('Flood Occurred', axis=1).columns if col != x_feature])
+                x_feature = st.selectbox("Select X-axis Feature", df.drop(columns=['Latitude', 'Longitude', 'Flood Occurred']).columns)
+                y_feature = st.selectbox("Select Y-axis Feature", [col for col in df.drop(columns=['Latitude', 'Longitude', 'Flood Occurred']).columns if col != x_feature])
                 
                 fig, ax = plt.subplots()
                 sns.scatterplot(data=df, x=x_feature, y=y_feature, hue='Flood Occurred', ax=ax)
                 st.pyplot(fig)
             
-            # Correlation matrix
+            # Correlation matrix (excluding lat/long)
             st.subheader("Correlation Matrix")
             fig, ax = plt.subplots(figsize=(10, 8))
-            sns.heatmap(df.corr(), annot=True, cmap="coolwarm", ax=ax)
+            sns.heatmap(df.drop(columns=['Latitude', 'Longitude']).corr(), annot=True, cmap="coolwarm", ax=ax)
             st.pyplot(fig)
         
         elif page == "Model Training":
@@ -581,7 +622,10 @@ def main():
                                               if hasattr(model, 'feature_importances_')])
                 
                 if selected_model_imp:
-                    imp_plot = plot_feature_importance(models[selected_model_imp], df.drop(columns=['Latitude', 'Longitude', 'Flood Occurred']).columns)
+                    imp_plot = plot_feature_importance(
+                        models[selected_model_imp], 
+                        df.drop(columns=['Latitude', 'Longitude', 'Flood Occurred']).columns
+                    )
                     if imp_plot:
                         st.pyplot(imp_plot)
                     else:
@@ -618,13 +662,13 @@ def main():
                 st.write("Selected Row Data:")
                 st.dataframe(selected_row.drop(columns=['Latitude', 'Longitude']))
                 
-                # Display location on a map
-                display_location_on_map(selected_lat, selected_lon)
-                
                 # Get place name from latitude and longitude
                 place_name = get_place_name(selected_lat, selected_lon)
                 st.subheader("Location Details")
                 st.text_area("Place Name", value=place_name, height=68, disabled=True)
+                
+                # Display enhanced location map
+                display_location_on_map(selected_lat, selected_lon)
                 
                 # Extract features for prediction (excluding 'Latitude', 'Longitude', and 'Flood Occurred')
                 input_data = selected_row.drop(columns=['Latitude', 'Longitude', 'Flood Occurred'])
@@ -652,13 +696,14 @@ def main():
                         else:
                             severity = "LOW"
                         
-                        alert_message = f"{severity} flood risk detected at Latitude: {selected_lat}, Longitude: {selected_lon}"
+                        alert_message = f"{severity} flood risk detected at {place_name}"
                         
                         # Prepare details for the alert
                         details = {
-                            "Location": f"Latitude: {selected_lat}, Longitude: {selected_lon}",
+                            "Location": place_name,
+                            "Coordinates": f"Lat: {selected_lat}, Lon: {selected_lon}",
                             "Model": selected_model,
-                            **selected_row.iloc[0].to_dict()  # Include all features in the alert details
+                            **selected_row.drop(columns=['Latitude', 'Longitude', 'Flood Occurred']).iloc[0].to_dict()
                         }
                         
                         # Save the alert for the current user
@@ -756,10 +801,11 @@ def main():
                     st.subheader("Decision Boundaries")
                     st.warning("This visualization is only available for 2D feature spaces.")
                     
-                    # Select features for visualization
-                    feature1 = st.selectbox("Select First Feature", df.drop(columns=['Latitude', 'Longitude', 'Flood Occurred']).columns, index=0)
+                    # Select features for visualization (excluding lat/long)
+                    available_features = [col for col in df.columns if col not in ['Latitude', 'Longitude', 'Flood Occurred']]
+                    feature1 = st.selectbox("Select First Feature", available_features, index=0)
                     feature2 = st.selectbox("Select Second Feature", 
-                                             [col for col in df.drop(columns=['Latitude', 'Longitude', 'Flood Occurred']).columns if col != feature1], 
+                                             [col for col in available_features if col != feature1], 
                                              index=0)
                     
                     # Select model
