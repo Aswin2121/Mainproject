@@ -24,6 +24,12 @@ import pydeck as pdk
 # Set page configuration
 st.set_page_config(page_title="Flood Prediction System", layout="wide")
 
+# Email configuration (replace with your SMTP details)
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 465
+SENDER_EMAIL = "achums1212@gmail.com"  # Replace with your email
+SENDER_PASSWORD = "vvmirqrkzgzwloln"  # Replace with your app password
+
 # Session state initialization
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -48,12 +54,15 @@ def init_users():
             json.dump(default_user, f)
 
 def get_users():
-    with open('users.json', 'r') as f:
-        return json.load(f)
+    try:
+        with open('users.json', 'r') as f:
+            return json.load(f)
+    except:
+        return {}
 
 def save_users(users):
     with open('users.json', 'w') as f:
-        json.dump(users, f)
+        json.dump(users, f, indent=4)
 
 def verify_user(username, password):
     users = get_users()
@@ -72,7 +81,7 @@ def register_user(username, password, email, locality):
         "password": hashlib.sha256(password.encode()).hexdigest(),
         "email": email,
         "alert_threshold": 0.7,
-        "alert_channels": ["dashboard"],
+        "alert_channels": ["dashboard", "email"],  # Enable email by default
         "locality": locality
     }
     
@@ -86,8 +95,11 @@ def init_alerts():
             json.dump([], f)
 
 def get_alerts():
-    with open('alerts.json', 'r') as f:
-        return json.load(f)
+    try:
+        with open('alerts.json', 'r') as f:
+            return json.load(f)
+    except:
+        return []
 
 def save_alert(username, alert_message, risk_level, details=None):
     alerts = get_alerts()
@@ -103,57 +115,88 @@ def save_alert(username, alert_message, risk_level, details=None):
     alerts.append(alert)
     
     with open('alerts.json', 'w') as f:
-        json.dump(alerts, f)
+        json.dump(alerts, f, indent=4)
     
-    # Add to session state for immediate display
     st.session_state.alerts.append(alert)
-    
-    # Send email notification if configured
-    users = get_users()
-    if username in users and "email" in users[username] and "alert_channels" in users[username]:
-        if "email" in users[username]["alert_channels"]:
-            send_email_alert(users[username]["email"], alert_message, risk_level, details)
 
-def send_email_alert(email, alert_message, risk_level, details=None):
-    # In a real implementation, you would configure this with actual SMTP server details
-    # This is a placeholder function that logs the email that would be sent
-    print(f"Would send email to {email}: {alert_message} (Risk: {risk_level})")
-    
-    # Uncomment and configure for actual email sending
-    sender_email = "your_email@example.com"
-    password = "your_password"
-    
-    message = MIMEMultipart()
-    message["From"] = sender_email
-    message["To"] = email
-    message["Subject"] = f"Flood Alert - Risk Level: {risk_level}"
-    
-    body = f"""
-    Flood Alert System Notification
-    
-    {alert_message}
-    
-    Risk Level: {risk_level}
-    Time: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-    
-    Details:
-    {json.dumps(details, indent=2) if details else "No additional details"}
-    
-    This is an automated message. Please do not reply.
-    """
-    
-    message.attach(MIMEText(body, "plain"))
-    
+def send_email_alert(receiver_email, alert_message, risk_level, details=None):
     try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(sender_email, password)
-        server.sendmail(sender_email, email, message.as_string())
-        server.quit()
+        # Create a unique ID for this alert to prevent duplicates
+        alert_id = hashlib.md5(f"{receiver_email}{alert_message}{risk_level}".encode()).hexdigest()
+        
+        # Check if this alert was already sent
+        if os.path.exists('sent_alerts.json'):
+            with open('sent_alerts.json', 'r') as f:
+                sent_alerts = json.load(f)
+        else:
+            sent_alerts = []
+            
+        if alert_id in sent_alerts:
+            return True  # Already sent
+            
+        # Create detailed email content
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = receiver_email
+        msg['Subject'] = f"🚨 Flood Alert - Risk Level: {risk_level:.0%}"
+        
+        # Enhanced email body with more details
+        body = f"""
+        ==============================
+        FLOOD RISK ALERT NOTIFICATION
+        ==============================
+        
+        🚨 ALERT: {alert_message}
+        
+        🔍 Risk Assessment:
+        - Risk Level: {risk_level:.0%} ({'HIGH' if risk_level >= 0.8 else 'MEDIUM' if risk_level >= 0.5 else 'LOW'})
+        - Time Detected: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        
+        📍 Location Details:
+        - Address: {details.get('Location', 'N/A')}
+        - Coordinates: {details.get('Coordinates', 'N/A')}
+        
+        ⚙️ Prediction Model:
+        - Model Used: {details.get('Model', 'N/A')}
+        - Confidence: {risk_level:.0%}
+        
+        🛡️ Recommended Actions:
+        - Monitor local flood warnings
+        - Prepare emergency supplies
+        - Follow evacuation routes if necessary
+        
+        This is an automated alert from the Flood Prediction System.
+        Please verify with official sources before taking action.
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Connect and send
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+            
+        # Record this alert as sent
+        sent_alerts.append(alert_id)
+        with open('sent_alerts.json', 'w') as f:
+            json.dump(sent_alerts, f)
+            
         return True
+        
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        st.error(f"Failed to send email: {str(e)}")
         return False
+
+def send_alerts_to_all_users(alert_message, risk_level, details=None):
+    users = get_users()
+    for username, user_data in users.items():
+        if "email" in user_data.get("alert_channels", []) and risk_level >= user_data.get("alert_threshold", 0.7):
+            send_email_alert(
+                user_data["email"],
+                alert_message,
+                risk_level,
+                details
+            )
 
 # Function to load data
 @st.cache_data
@@ -709,18 +752,13 @@ def main():
                         # Save the alert for the current user
                         save_alert(st.session_state.username, alert_message, risk_level, details)
                         
-                        # Send alerts to all users in the same locality
-                        locality = users[st.session_state.username].get("locality")
-                        if locality:
-                            send_locality_alerts(locality, alert_message, risk_level, details)
+                        # Send alerts to ALL users who have email notifications enabled
+                        send_alerts_to_all_users(alert_message, risk_level, details)
                         
                         # Show alert notification
                         st.warning(f"⚠️ Alert created: {alert_message}")
-                    
-                    st.subheader("Prediction Result")
-                    
-                    # Create columns for prediction display
-                    col1, col2 = st.columns(2)
+                            # Create columns for prediction display
+                        col1, col2 = st.columns(2)
                     
                     with col1:
                         if prediction == 1:
