@@ -1,1 +1,31 @@
-{"admin": {"password": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9", "email": "admin@example.com", "alert_threshold": 0.7, "alert_channels": ["email", "dashboard"]}, "aswin": {"password": "2b8b8ad6c64775f79356b0eb42dde6b3a8a135348c7d4b3a11c15041e79d734b", "email": "achums1212@gmail.com", "alert_threshold": 0.0, "alert_channels": ["dashboard", "email"]}, "aswinm": {"password": "f5b60df4e8e0f769cc23fec149cb3b0075eebcb99473b771b963e73aa9defdb0", "email": "achums2121@gmail.com", "alert_threshold": 0.7, "alert_channels": ["dashboard"]}}
+{
+    "admin": {
+        "password": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+        "email": "admin@example.com",
+        "alert_threshold": 0.7,
+        "alert_channels": [
+            "email",
+            "dashboard"
+        ]
+    },
+    "aswin21": {
+        "password": "2b8b8ad6c64775f79356b0eb42dde6b3a8a135348c7d4b3a11c15041e79d734b",
+        "email": "achums1212@gmail.com",
+        "alert_threshold": 0.2,
+        "alert_channels": [
+            "email"
+        ],
+        "locality": "telegana"
+    }, 
+    "meenu": {
+        "password": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+        "email": "achums2121@gmail.com",
+        "alert_threshold": 0.7,
+        "alert_channels": [
+            "dashboard",
+            "email"
+        ],
+        "locality": "delhi",
+        "email_verified": true
+    }
+}
