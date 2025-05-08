@@ -45,8 +45,7 @@ This system predicts flood risks using various machine learning models and provi
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/flood-prediction-system.git
-   cd flood-prediction-system
+   git clone https://github.com/Aswin2121/Mainproject.git
 
    Install dependencies:
 
