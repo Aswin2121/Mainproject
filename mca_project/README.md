@@ -52,11 +52,6 @@ This system predicts flood risks using various machine learning models and provi
 
 bash
 pip install -r requirements.txt
-Set up environment variables:
-
-bash
-cp .env.example .env
-Edit .env with your SMTP credentials and other configurations.
 
 🏃‍♂️ Running the Application
 bash
